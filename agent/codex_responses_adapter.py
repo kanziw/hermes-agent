@@ -471,21 +471,34 @@ def _chat_messages_to_responses_input(
                         items.append(replay_item)
                         replayed_message_items += 1
 
+                tool_calls = msg.get("tool_calls")
+                has_replayable_tool_call = False
+                if isinstance(tool_calls, list):
+                    for tc in tool_calls:
+                        if not isinstance(tc, dict):
+                            continue
+                        fn = tc.get("function", {})
+                        fn_name = fn.get("name")
+                        if isinstance(fn_name, str) and fn_name.strip():
+                            has_replayable_tool_call = True
+                            break
+
                 if replayed_message_items > 0:
                     pass
                 elif content_parts:
                     items.append({"role": "assistant", "content": content_parts})
                 elif content_text.strip():
                     items.append({"role": "assistant", "content": content_text})
-                elif has_codex_reasoning:
+                elif has_codex_reasoning and not has_replayable_tool_call:
                     # The Responses API requires a following item after each
                     # reasoning item (otherwise: missing_following_item error).
-                    # When the assistant produced only reasoning with no visible
-                    # content, emit an empty assistant message as the required
-                    # following item.
+                    # If this assistant turn is followed by function_call items,
+                    # those calls are already the required following items. Do
+                    # not inject an empty assistant message before tool calls:
+                    # the Codex backend can reject that replay shape with
+                    # HTTP 400 "Unsupported content type".
                     items.append({"role": "assistant", "content": ""})
 
-                tool_calls = msg.get("tool_calls")
                 if isinstance(tool_calls, list):
                     for tc in tool_calls:
                         if not isinstance(tc, dict):

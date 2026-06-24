@@ -2127,6 +2127,41 @@ def test_chat_messages_to_responses_input_reasoning_only_has_following_item(monk
     assert following.get("role") == "assistant"
 
 
+def test_codex_reasoning_with_tool_calls_uses_function_call_as_following_item(monkeypatch):
+    """Do not inject an empty assistant message between reasoning and tool calls.
+
+    The Codex backend treats the following function_call as the required item
+    after reasoning. Replaying an extra empty assistant message before tool
+    calls can trigger HTTP 400 "Unsupported content type".
+    """
+    agent = _build_agent(monkeypatch)
+    from agent.codex_responses_adapter import _chat_messages_to_responses_input
+
+    items = _chat_messages_to_responses_input([
+        {"role": "user", "content": "run checks"},
+        {
+            "role": "assistant",
+            "content": "",
+            "codex_reasoning_items": [
+                {"type": "reasoning", "id": "rs_001", "encrypted_content": "enc_abc", "summary": []},
+            ],
+            "tool_calls": [
+                {
+                    "id": "call_abc",
+                    "call_id": "call_abc",
+                    "function": {"name": "terminal", "arguments": "{}"},
+                }
+            ],
+        },
+    ])
+
+    reasoning_index = next(i for i, it in enumerate(items) if it.get("type") == "reasoning")
+    following = items[reasoning_index + 1]
+    assert following.get("type") == "function_call"
+    assert following.get("call_id") == "call_abc"
+    assert not any(it.get("role") == "assistant" and it.get("content") == "" for it in items)
+
+
 def test_codex_message_item_status_survives_conversion_and_preflight(monkeypatch):
     """Stored Codex assistant message statuses must survive replay normalization."""
     agent = _build_agent(monkeypatch)
